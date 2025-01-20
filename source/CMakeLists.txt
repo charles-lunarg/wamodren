@@ -6,3 +6,8 @@ target_link_libraries(renderer
     fmt::fmt
     magic_enum::magic_enum
 )
+
+if (ENABLE_ASAN)
+    target_compile_options(renderer PUBLIC -fsanitize=address)
+    target_link_options(renderer PUBLIC -fsanitize=address)
+endif()
