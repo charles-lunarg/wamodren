@@ -54,10 +54,10 @@ int init(init_settings &settings, renderer &rend)
         return -1;
     }
     glfwSetKeyCallback(rend.glfw_window, glfw_key_callback);
-    uint32_t count = 0;
-    const char **required_glfw_extensions = glfwGetRequiredInstanceExtensions(&count);
+    uint32_t glfw_extension_count = 0;
+    const char **required_glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
     std::vector<const char *> required_instance_extensions;
-    for (uint32_t i = 0; i < count; i++)
+    for (uint32_t i = 0; i < glfw_extension_count; i++)
     {
         required_instance_extensions.push_back(required_glfw_extensions[i]);
     }
@@ -87,15 +87,17 @@ int init(init_settings &settings, renderer &rend)
         fmt::print("Failed to create VkSurfaceKHR with error code {}", magic_enum::enum_name(err));
         return -1;
     }
-    count = 1;
-    err = vkEnumeratePhysicalDevices(rend.inst, &count, &rend.physical_device);
+    uint32_t physical_device_count = 1;
+    err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, &rend.physical_device);
     if (err < VK_SUCCESS)
     {
         fmt::print("Failed to enumerate physical devices with error code {}", magic_enum::enum_name(err));
         return -1;
     }
+
+    uint32_t queue_count = 1;
     VkQueueFamilyProperties queue_family_properties{};
-    vkGetPhysicalDeviceQueueFamilyProperties(rend.physical_device, &count, &queue_family_properties);
+    vkGetPhysicalDeviceQueueFamilyProperties(rend.physical_device, &queue_count, &queue_family_properties);
     if ((queue_family_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0 ||
         (queue_family_properties.queueFlags & VK_QUEUE_COMPUTE_BIT) == 0 ||
         (queue_family_properties.queueFlags & VK_QUEUE_TRANSFER_BIT) == 0)
@@ -103,17 +105,18 @@ int init(init_settings &settings, renderer &rend)
         fmt::print("VkPhysicalDevice's first queue doesn't support all required queue operations of graphics, compute, and transfer");
         return -1;
     }
-    std::vector<const char *> required_device_extensions{};
+    std::vector<const char *> required_device_extensions{
+        "VK_KHR_swapchain"};
     std::vector<VkExtensionProperties> available_device_extensions{};
-    count = 0;
-    err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &count, nullptr);
+    uint32_t device_extension_count = 0;
+    err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &device_extension_count, nullptr);
     if (err != VK_SUCCESS)
     {
         fmt::print("Cannot get count of VkPhysicalDevice's extensions with error code {}", magic_enum::enum_name(err));
         return -1;
     }
-    available_device_extensions.resize(count, VkExtensionProperties{});
-    err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &count, available_device_extensions.data());
+    available_device_extensions.resize(device_extension_count, VkExtensionProperties{});
+    err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &device_extension_count, available_device_extensions.data());
     if (err != VK_SUCCESS)
     {
         fmt::print("Cannot get VkPhysicalDevice's extensions with error code {}", magic_enum::enum_name(err));
@@ -138,26 +141,47 @@ int init(init_settings &settings, renderer &rend)
         }
     }
 
+    VkPhysicalDeviceFeatures2 physical_device_features{};
+    physical_device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+
+    float queue_priority = 1.0f;
+    VkDeviceQueueCreateInfo queue_create_infos{};
+    queue_create_infos.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_infos.pQueuePriorities = &queue_priority;
+    queue_create_infos.queueCount = 1;
+    queue_create_infos.queueFamilyIndex = 0;
+
     VkDeviceCreateInfo device_create_info{};
     device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_create_info.pNext = &physical_device_features;
     device_create_info.enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size());
-    device_create_info.ppEnabledLayerNames = required_device_extensions.data();
+    device_create_info.ppEnabledExtensionNames = required_device_extensions.data();
+    device_create_info.queueCreateInfoCount = 1;
+    device_create_info.pQueueCreateInfos = &queue_create_infos;
     err = vkCreateDevice(rend.physical_device, &device_create_info, nullptr, &rend.device);
     if (err != VK_SUCCESS)
     {
         fmt::print("Unable to create device with error code {}", magic_enum::enum_name(err));
         return -1;
     }
-    count = 0;
+
+    VkSurfaceCapabilitiesKHR surface_capabilities{};
+    err = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(rend.physical_device, rend.surface, &surface_capabilities);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Unable to get physical device surface capabilities with err {}", magic_enum::enum_name(err));
+        return -1;
+    }
+    uint32_t surface_format_count = 0;
     std::vector<VkSurfaceFormatKHR> surface_formats{};
-    err = vkGetPhysicalDeviceSurfaceFormatsKHR(rend.physical_device, rend.surface, &count, nullptr);
+    err = vkGetPhysicalDeviceSurfaceFormatsKHR(rend.physical_device, rend.surface, &surface_format_count, nullptr);
     if (err != VK_SUCCESS)
     {
         fmt::print("Cannot get count of VkSurfaceFormatKHRs with error code {}", magic_enum::enum_name(err));
         return -1;
     }
-    surface_formats.resize(count, VkSurfaceFormatKHR{});
-    err = vkGetPhysicalDeviceSurfaceFormatsKHR(rend.physical_device, rend.surface, &count, surface_formats.data());
+    surface_formats.resize(surface_format_count, VkSurfaceFormatKHR{});
+    err = vkGetPhysicalDeviceSurfaceFormatsKHR(rend.physical_device, rend.surface, &surface_format_count, surface_formats.data());
     if (err != VK_SUCCESS)
     {
         fmt::print("Cannot get VkSurfaceFormatKHRs with error code {}", magic_enum::enum_name(err));
@@ -196,7 +220,7 @@ int init(init_settings &settings, renderer &rend)
     VkSwapchainCreateInfoKHR swapchain_create_info{};
     swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     swapchain_create_info.surface = rend.surface;
-    swapchain_create_info.minImageCount = 3;
+    swapchain_create_info.minImageCount = (surface_capabilities.minImageCount > 3) ? surface_capabilities.minImageCount : 3;
     swapchain_create_info.imageFormat = rend.swapchain_image_format;
     swapchain_create_info.imageColorSpace = rend.swapchain_image_colorspace;
     swapchain_create_info.imageExtent = VkExtent2D{static_cast<uint32_t>(settings.window_width), static_cast<uint32_t>(settings.window_height)};
@@ -222,6 +246,7 @@ int init(init_settings &settings, renderer &rend)
 int shutdown(renderer &rend)
 {
 
+    vkDestroySwapchainKHR(rend.device, rend.swapchain, nullptr);
     vkDestroyDevice(rend.device, nullptr);
     vkDestroySurfaceKHR(rend.inst, rend.surface, nullptr);
     vkDestroyInstance(rend.inst, nullptr);
