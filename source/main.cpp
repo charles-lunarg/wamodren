@@ -52,6 +52,7 @@ struct renderer
     VkSwapchainKHR swapchain{};
     VkFormat swapchain_image_format{};
     VkColorSpaceKHR swapchain_image_colorspace{};
+    VkRect2D swapchain_image_render_area{};
     VkCommandPool submission_command_pool{};
     uint32_t current_swapchain_frame_index = 0;
     std::vector<swapchain_frame> swapchain_frames;
@@ -60,7 +61,7 @@ struct renderer
     std::vector<submission_frame> submission_frames;
 };
 
-static constexpr VkImageSubresourceRange entire_subresource_range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+static constexpr VkImageSubresourceRange single_color_image_subresource_range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
 int init(init_settings &settings, renderer &rend)
 {
@@ -131,6 +132,7 @@ int init(init_settings &settings, renderer &rend)
         fmt::print("VkPhysicalDevice's first queue doesn't support all required queue operations of graphics, compute, and transfer");
         return -1;
     }
+
     std::vector<const char *> required_device_extensions{
         "VK_KHR_swapchain"};
     std::vector<VkExtensionProperties> available_device_extensions{};
@@ -166,9 +168,83 @@ int init(init_settings &settings, renderer &rend)
             return -1;
         }
     }
+    /* Unused at the moment
+    VkPhysicalDeviceVulkan14Features available_features_1_4{};
+    available_features_1_4.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
 
-    VkPhysicalDeviceFeatures2 physical_device_features{};
-    physical_device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    available_features_1_3.pNext = &available_features_1_4;
+    */
+
+    // Required Physical Device Features across all versions
+    VkPhysicalDeviceVulkan13Features available_features_1_3{};
+    available_features_1_3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    available_features_1_3.dynamicRendering = VK_TRUE;
+    available_features_1_3.maintenance4 = VK_TRUE;
+    available_features_1_3.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceVulkan12Features available_features_1_2{};
+    available_features_1_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    available_features_1_2.pNext = &available_features_1_3;
+    available_features_1_2.timelineSemaphore = VK_TRUE;
+    available_features_1_2.bufferDeviceAddress = VK_TRUE;
+    available_features_1_2.descriptorIndexing = VK_TRUE;
+    available_features_1_2.uniformBufferStandardLayout = VK_TRUE;
+    available_features_1_2.descriptorBindingPartiallyBound = VK_TRUE;
+
+    VkPhysicalDeviceVulkan11Features available_features_1_1{};
+    available_features_1_1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    available_features_1_1.pNext = &available_features_1_2;
+
+    VkPhysicalDeviceFeatures2 available_physical_device_features{};
+    available_physical_device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    available_physical_device_features.pNext = &available_features_1_1;
+
+    vkGetPhysicalDeviceFeatures2(rend.physical_device, &available_physical_device_features);
+
+    if (
+        available_features_1_2.timelineSemaphore != VK_TRUE ||
+        available_features_1_2.bufferDeviceAddress != VK_TRUE ||
+        available_features_1_2.descriptorIndexing != VK_TRUE ||
+        available_features_1_2.uniformBufferStandardLayout != VK_TRUE ||
+        available_features_1_2.descriptorBindingPartiallyBound != VK_TRUE ||
+
+        available_features_1_3.dynamicRendering != VK_TRUE ||
+        available_features_1_3.maintenance4 != VK_TRUE ||
+        available_features_1_3.synchronization2 != VK_TRUE)
+    {
+        fmt::print("Missing required physical device features!");
+        return -1;
+    }
+    /*
+        // Unused at the moment
+        VkPhysicalDeviceVulkan14Features enabled_features_1_4{};
+        enabled_features_1_4.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
+
+        enabled_features_1_3.pNext = &enabled_features_1_4;
+    */
+
+    VkPhysicalDeviceVulkan13Features enabled_features_1_3{};
+    enabled_features_1_3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    enabled_features_1_3.dynamicRendering = VK_TRUE;
+    enabled_features_1_3.maintenance4 = VK_TRUE;
+    enabled_features_1_3.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceVulkan12Features enabled_features_1_2{};
+    enabled_features_1_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    enabled_features_1_2.pNext = &enabled_features_1_3;
+    enabled_features_1_2.timelineSemaphore = VK_TRUE;
+    enabled_features_1_2.bufferDeviceAddress = VK_TRUE;
+    enabled_features_1_2.descriptorIndexing = VK_TRUE;
+    enabled_features_1_2.uniformBufferStandardLayout = VK_TRUE;
+    enabled_features_1_2.descriptorBindingPartiallyBound = VK_TRUE;
+
+    VkPhysicalDeviceVulkan11Features enabled_features_1_1{};
+    enabled_features_1_1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    enabled_features_1_1.pNext = &enabled_features_1_2;
+
+    VkPhysicalDeviceFeatures2 enabled_physical_device_features{};
+    enabled_physical_device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    enabled_physical_device_features.pNext = &enabled_features_1_1;
 
     float queue_priority = 1.0f;
     VkDeviceQueueCreateInfo queue_create_infos{};
@@ -179,7 +255,7 @@ int init(init_settings &settings, renderer &rend)
 
     VkDeviceCreateInfo device_create_info{};
     device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.pNext = &physical_device_features;
+    device_create_info.pNext = &enabled_physical_device_features;
     device_create_info.enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size());
     device_create_info.ppEnabledExtensionNames = required_device_extensions.data();
     device_create_info.queueCreateInfoCount = 1;
@@ -268,6 +344,9 @@ int init(init_settings &settings, renderer &rend)
         fmt::print("Failed to create swapchain with error code {}", magic_enum::enum_name(err));
         return -1;
     }
+
+    rend.swapchain_image_render_area.extent = {static_cast<uint32_t>(settings.window_width), static_cast<uint32_t>(settings.window_height)};
+
     uint32_t swapchain_image_count = 0;
     err = vkGetSwapchainImagesKHR(rend.device, rend.swapchain, &swapchain_image_count, nullptr);
     if (err != VK_SUCCESS)
@@ -296,7 +375,7 @@ int init(init_settings &settings, renderer &rend)
         swapchain_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         swapchain_image_view_create_info.format = rend.swapchain_image_format;
         swapchain_image_view_create_info.image = swapchain_frame.image;
-        swapchain_image_view_create_info.subresourceRange = entire_subresource_range;
+        swapchain_image_view_create_info.subresourceRange = single_color_image_subresource_range;
         swapchain_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
 
         err = vkCreateImageView(rend.device, &swapchain_image_view_create_info, nullptr, &swapchain_frame.image_view);
@@ -402,9 +481,9 @@ int render(renderer &rend)
     }
 
     auto &current_swapchain_frame = rend.swapchain_frames.at(next_swapchain_image_index);
-    auto &cmd_buf = current_submission_frame.command_buffer;
+    auto &command_buffer = current_submission_frame.command_buffer;
 
-    err = vkResetCommandBuffer(cmd_buf, 0);
+    err = vkResetCommandBuffer(command_buffer, 0);
     if (err != VK_SUCCESS)
     {
         fmt::print("Failed to reset command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
@@ -413,16 +492,77 @@ int render(renderer &rend)
     VkCommandBufferBeginInfo command_buffer_begin_info{};
     command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    err = vkBeginCommandBuffer(cmd_buf, &command_buffer_begin_info);
+    err = vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
     if (err != VK_SUCCESS)
     {
         fmt::print("Failed to being command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
         return -1;
     }
-    VkClearColorValue clear_value{0.f, 1.f, 0.f, 0.f};
-    vkCmdClearColorImage(cmd_buf, current_swapchain_frame.image, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, &clear_value, 1, &entire_subresource_range);
 
-    err = vkEndCommandBuffer(cmd_buf);
+    // Transition swapchain image from UNDEFINED to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    VkImageMemoryBarrier image_memory_barrier{};
+    image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    image_memory_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    image_memory_barrier.image = current_swapchain_frame.image;
+    image_memory_barrier.subresourceRange = single_color_image_subresource_range;
+
+    vkCmdPipelineBarrier(
+        command_buffer,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // srcStageMask
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,                    // imageMemoryBarrierCount
+        &image_memory_barrier // pImageMemoryBarriers
+    );
+
+    VkRenderingAttachmentInfoKHR rendering_attachment_info{};
+    rendering_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    rendering_attachment_info.imageView = current_swapchain_frame.image_view;
+    rendering_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
+    rendering_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    rendering_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkClearValue clear_value{0.f, 1.f, 0.f, 0.f};
+    rendering_attachment_info.clearValue = clear_value;
+
+    VkRenderingInfoKHR rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    rendering_info.renderArea = rend.swapchain_image_render_area;
+    rendering_info.layerCount = 1;
+    rendering_info.viewMask = 0;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachments = &rendering_attachment_info;
+
+    vkCmdBeginRendering(command_buffer, &rendering_info);
+    vkCmdEndRendering(command_buffer);
+
+    VkImageMemoryBarrier to_present_src_image_memory_barrier{};
+    to_present_src_image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_present_src_image_memory_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    to_present_src_image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    to_present_src_image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    to_present_src_image_memory_barrier.image = current_swapchain_frame.image;
+    to_present_src_image_memory_barrier.subresourceRange = single_color_image_subresource_range;
+
+    vkCmdPipelineBarrier(
+        command_buffer,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // srcStageMask
+        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,          // dstStageMask
+        0,
+        0,
+        nullptr,
+        0,
+        nullptr,
+        1,                                   // imageMemoryBarrierCount
+        &to_present_src_image_memory_barrier // pImageMemoryBarriers
+    );
+
+    err = vkEndCommandBuffer(command_buffer);
     if (err != VK_SUCCESS)
     {
         fmt::print("Failed to end command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
