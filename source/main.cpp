@@ -17,10 +17,28 @@ void glfw_key_callback(GLFWwindow *window, int key, int scancode, int action, in
         glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 
+void window_close_callback(GLFWwindow *window)
+{
+    fmt::print("Window is closing!");
+}
+
 struct init_settings
 {
     int window_width = 800;
     int window_height = 600;
+};
+
+struct swapchain_frame
+{
+    VkImage image{};
+    VkImageView image_view{};
+};
+struct submission_frame
+{
+    VkCommandBuffer command_buffer{};
+    VkSemaphore acquire_swapchain_semaphore{};
+    VkSemaphore present_swapchain_semaphore{};
+    VkFence fence{};
 };
 
 struct renderer
@@ -30,12 +48,19 @@ struct renderer
     VkSurfaceKHR surface{};
     VkPhysicalDevice physical_device{};
     VkDevice device{};
+    VkQueue main_queue;
     VkSwapchainKHR swapchain{};
-    VkImage swapchain_images{};
-    VkImageView swapchain_image_views{};
     VkFormat swapchain_image_format{};
     VkColorSpaceKHR swapchain_image_colorspace{};
+    VkCommandPool submission_command_pool{};
+    uint32_t current_swapchain_frame_index = 0;
+    std::vector<swapchain_frame> swapchain_frames;
+
+    uint32_t current_submission_frame_index = 0;
+    std::vector<submission_frame> submission_frames;
 };
+
+static constexpr VkImageSubresourceRange entire_subresource_range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
 int init(init_settings &settings, renderer &rend)
 {
@@ -53,6 +78,7 @@ int init(init_settings &settings, renderer &rend)
         fmt::print("Failed to create glfw window");
         return -1;
     }
+    glfwSetWindowCloseCallback(rend.glfw_window, window_close_callback);
     glfwSetKeyCallback(rend.glfw_window, glfw_key_callback);
     uint32_t glfw_extension_count = 0;
     const char **required_glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
@@ -165,6 +191,8 @@ int init(init_settings &settings, renderer &rend)
         return -1;
     }
 
+    vkGetDeviceQueue(rend.device, 0, 0, &rend.main_queue);
+
     VkSurfaceCapabilitiesKHR surface_capabilities{};
     err = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(rend.physical_device, rend.surface, &surface_capabilities);
     if (err != VK_SUCCESS)
@@ -237,14 +265,221 @@ int init(init_settings &settings, renderer &rend)
     err = vkCreateSwapchainKHR(rend.device, &swapchain_create_info, nullptr, &rend.swapchain);
     if (err != VK_SUCCESS)
     {
-        fmt::print("Cannot find suitable swapchain image format");
+        fmt::print("Failed to create swapchain with error code {}", magic_enum::enum_name(err));
         return -1;
     }
+    uint32_t swapchain_image_count = 0;
+    err = vkGetSwapchainImagesKHR(rend.device, rend.swapchain, &swapchain_image_count, nullptr);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to get swapchain image count with code {}", magic_enum::enum_name(err));
+        return -1;
+    }
+    std::vector<VkImage> swapchain_images(swapchain_image_count, VkImage{});
+    err = vkGetSwapchainImagesKHR(rend.device, rend.swapchain, &swapchain_image_count, swapchain_images.data());
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to get swapchain image count with code {}", magic_enum::enum_name(err));
+        return -1;
+    }
+
+    rend.swapchain_frames.resize(swapchain_image_count, {});
+
+    for (uint32_t i = 0; i < rend.swapchain_frames.size(); i++)
+    {
+        rend.swapchain_frames.at(i).image = swapchain_images.at(i);
+    }
+    for (auto &swapchain_frame : rend.swapchain_frames)
+    {
+
+        VkImageViewCreateInfo swapchain_image_view_create_info{};
+        swapchain_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        swapchain_image_view_create_info.format = rend.swapchain_image_format;
+        swapchain_image_view_create_info.image = swapchain_frame.image;
+        swapchain_image_view_create_info.subresourceRange = entire_subresource_range;
+        swapchain_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+
+        err = vkCreateImageView(rend.device, &swapchain_image_view_create_info, nullptr, &swapchain_frame.image_view);
+        if (err != VK_SUCCESS)
+        {
+            fmt::print("Failed to create swapchain image view with code {}", magic_enum::enum_name(err));
+            return -1;
+        }
+    }
+
+    VkCommandPoolCreateInfo command_buffer_create_info{};
+    command_buffer_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_buffer_create_info.queueFamilyIndex = 0;
+    command_buffer_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    err = vkCreateCommandPool(rend.device, &command_buffer_create_info, nullptr, &rend.submission_command_pool);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to create command pool with error code {}", magic_enum::enum_name(err));
+        return -1;
+    }
+    VkCommandBufferAllocateInfo command_buffer_allocate_info{};
+    command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_allocate_info.commandPool = rend.submission_command_pool;
+    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_allocate_info.commandBufferCount = swapchain_image_count;
+    std::vector<VkCommandBuffer> command_buffers(swapchain_image_count, {});
+    err = vkAllocateCommandBuffers(rend.device, &command_buffer_allocate_info, command_buffers.data());
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to create command buffers with error code {}", magic_enum::enum_name(err));
+        return -1;
+    }
+
+    // Double buffer the work we submit onto the GPU
+    rend.submission_frames.resize(2, {});
+    rend.submission_frames.at(0).command_buffer = command_buffers.at(0);
+    rend.submission_frames.at(1).command_buffer = command_buffers.at(1);
+    for (auto &submission_frame : rend.submission_frames)
+    {
+
+        VkSemaphoreCreateInfo semaphore_create_info{};
+        semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        err = vkCreateSemaphore(rend.device, &semaphore_create_info, nullptr, &submission_frame.acquire_swapchain_semaphore);
+        if (err != VK_SUCCESS)
+        {
+            fmt::print("Failed to create acquire semaphore with code {}", magic_enum::enum_name(err));
+            return -1;
+        }
+        err = vkCreateSemaphore(rend.device, &semaphore_create_info, nullptr, &submission_frame.present_swapchain_semaphore);
+        if (err != VK_SUCCESS)
+        {
+            fmt::print("Failed to create present semaphore with code {}", magic_enum::enum_name(err));
+            return -1;
+        }
+        VkFenceCreateInfo fence_create_info{};
+        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        err = vkCreateFence(rend.device, &fence_create_info, nullptr, &submission_frame.fence);
+        if (err != VK_SUCCESS)
+        {
+            fmt::print("Failed to create fence with code {}", magic_enum::enum_name(err));
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int render(renderer &rend)
+{
+    VkResult err = VK_SUCCESS;
+    auto &current_submission_frame = rend.submission_frames.at(rend.current_submission_frame_index);
+
+    err = vkWaitForFences(rend.device, 1, &current_submission_frame.fence, VK_TRUE, 10000000000);
+    if (err == VK_TIMEOUT)
+    {
+        fmt::print("vkWaitForFences on submission frame index {} exceeded timeout with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+    else if (err != VK_SUCCESS)
+    {
+        fmt::print("vkWaitForFences on submission frame index {} failed with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+    err = vkResetFences(rend.device, 1, &current_submission_frame.fence);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to reset fence from submission frame index {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+
+    uint32_t next_swapchain_image_index = 0;
+    err = vkAcquireNextImageKHR(rend.device, rend.swapchain, 1000000000, current_submission_frame.acquire_swapchain_semaphore, nullptr, &next_swapchain_image_index);
+    if (err == VK_SUBOPTIMAL_KHR)
+    {
+        fmt::print("vkAcquireNextImageKHR reported VK_SUBOPTIMAL_KHR from swapchain frame index {}", rend.current_swapchain_frame_index);
+        return -1;
+    }
+    else if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to reset fence from swapchain frame index {} with code {}", rend.current_swapchain_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+
+    auto &current_swapchain_frame = rend.swapchain_frames.at(next_swapchain_image_index);
+    auto &cmd_buf = current_submission_frame.command_buffer;
+
+    err = vkResetCommandBuffer(cmd_buf, 0);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to reset command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+    VkCommandBufferBeginInfo command_buffer_begin_info{};
+    command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    err = vkBeginCommandBuffer(cmd_buf, &command_buffer_begin_info);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to being command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+    VkClearColorValue clear_value{0.f, 1.f, 0.f, 0.f};
+    vkCmdClearColorImage(cmd_buf, current_swapchain_frame.image, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, &clear_value, 1, &entire_subresource_range);
+
+    err = vkEndCommandBuffer(cmd_buf);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to end command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+
+    VkPipelineStageFlags wait_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &current_submission_frame.command_buffer;
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &current_submission_frame.acquire_swapchain_semaphore;
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &current_submission_frame.present_swapchain_semaphore;
+    submit_info.pWaitDstStageMask = &wait_stages;
+    err = vkQueueSubmit(rend.main_queue, 1, &submit_info, current_submission_frame.fence);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to submit command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+
+    VkPresentInfoKHR present_info{};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.pImageIndices = &next_swapchain_image_index;
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &rend.swapchain;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &current_submission_frame.present_swapchain_semaphore;
+    present_info.pResults = nullptr;
+
+    vkQueuePresentKHR(rend.main_queue, &present_info);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to present swapchain frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        return -1;
+    }
+    rend.current_submission_frame_index = (rend.current_submission_frame_index + 1) % 2;
+
     return 0;
 }
 
 int shutdown(renderer &rend)
 {
+    vkDeviceWaitIdle(rend.device);
+    for (auto &swapchain_frame : rend.swapchain_frames)
+    {
+        vkDestroyImageView(rend.device, swapchain_frame.image_view, nullptr);
+    }
+    for (auto &submission_frame : rend.submission_frames)
+    {
+        vkDestroySemaphore(rend.device, submission_frame.acquire_swapchain_semaphore, nullptr);
+        vkDestroySemaphore(rend.device, submission_frame.present_swapchain_semaphore, nullptr);
+        vkDestroyFence(rend.device, submission_frame.fence, nullptr);
+    }
+    vkDestroyCommandPool(rend.device, rend.submission_command_pool, nullptr);
 
     vkDestroySwapchainKHR(rend.device, rend.swapchain, nullptr);
     vkDestroyDevice(rend.device, nullptr);
@@ -268,6 +503,11 @@ int main()
     while (!glfwWindowShouldClose(rend.glfw_window))
     {
         glfwPollEvents();
+        ret = render(rend);
+        if (ret != 0)
+        {
+            return ret;
+        }
     }
     ret = shutdown(rend);
     if (ret != 0)
