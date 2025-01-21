@@ -107,7 +107,7 @@ int init(init_settings &settings, renderer &rend)
         return -1;
     }
 
-    VkSurfaceKHR surface;
+    VkSurfaceKHR surface{};
     err = glfwCreateWindowSurface(rend.inst, rend.glfw_window, NULL, &rend.surface);
     if (err != VK_SUCCESS)
     {
@@ -119,6 +119,12 @@ int init(init_settings &settings, renderer &rend)
     if (err < VK_SUCCESS)
     {
         fmt::print("Failed to enumerate physical devices with error code {}", magic_enum::enum_name(err));
+        return -1;
+    }
+
+    if (!glfwGetPhysicalDevicePresentationSupport(rend.inst, rend.physical_device, 0))
+    {
+        fmt::print("Physical Device does not support presentation");
         return -1;
     }
 
@@ -448,11 +454,12 @@ int render(renderer &rend)
 {
     VkResult err = VK_SUCCESS;
     auto &current_submission_frame = rend.submission_frames.at(rend.current_submission_frame_index);
+    uint64_t timeout = 1000000000;
 
-    err = vkWaitForFences(rend.device, 1, &current_submission_frame.fence, VK_TRUE, 10000000000);
+    err = vkWaitForFences(rend.device, 1, &current_submission_frame.fence, VK_TRUE, timeout);
     if (err == VK_TIMEOUT)
     {
-        fmt::print("vkWaitForFences on submission frame index {} exceeded timeout with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
+        fmt::print("vkWaitForFences on submission frame index {} exceeded timeout {}ns", rend.current_submission_frame_index, timeout);
         return -1;
     }
     else if (err != VK_SUCCESS)
@@ -460,6 +467,7 @@ int render(renderer &rend)
         fmt::print("vkWaitForFences on submission frame index {} failed with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
         return -1;
     }
+
     err = vkResetFences(rend.device, 1, &current_submission_frame.fence);
     if (err != VK_SUCCESS)
     {
@@ -468,15 +476,20 @@ int render(renderer &rend)
     }
 
     uint32_t next_swapchain_image_index = 0;
-    err = vkAcquireNextImageKHR(rend.device, rend.swapchain, 1000000000, current_submission_frame.acquire_swapchain_semaphore, nullptr, &next_swapchain_image_index);
-    if (err == VK_SUBOPTIMAL_KHR)
+    err = vkAcquireNextImageKHR(rend.device, rend.swapchain, timeout, current_submission_frame.acquire_swapchain_semaphore, nullptr, &next_swapchain_image_index);
+    if (err == VK_TIMEOUT)
     {
-        fmt::print("vkAcquireNextImageKHR reported VK_SUBOPTIMAL_KHR from swapchain frame index {}", rend.current_swapchain_frame_index);
+        fmt::print("vkAcquireNextImageKHR on submission frame index {} exceeded timeout {}ns", rend.current_submission_frame_index, timeout);
+        return -1;
+    }
+    else if (err == VK_SUBOPTIMAL_KHR)
+    {
+        fmt::print("vkAcquireNextImageKHR reported VK_SUBOPTIMAL_KHR from submission frame index {}", rend.current_submission_frame_index);
         return -1;
     }
     else if (err != VK_SUCCESS)
     {
-        fmt::print("Failed to reset fence from swapchain frame index {} with code {}", rend.current_swapchain_frame_index, magic_enum::enum_name(err));
+        fmt::print("vkAcquireNextImageKHR from submission frame index {} failed with error code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
         return -1;
     }
 
@@ -500,26 +513,25 @@ int render(renderer &rend)
     }
 
     // Transition swapchain image from UNDEFINED to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    VkImageMemoryBarrier image_memory_barrier{};
-    image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    image_memory_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    VkImageMemoryBarrier2 image_memory_barrier{};
+    image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    image_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    image_memory_barrier.srcAccessMask = VK_ACCESS_2_NONE;
+    image_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    image_memory_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
     image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     image_memory_barrier.image = current_swapchain_frame.image;
     image_memory_barrier.subresourceRange = single_color_image_subresource_range;
+    image_memory_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    image_memory_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
-    vkCmdPipelineBarrier(
-        command_buffer,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,             // srcStageMask
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // dstStageMask
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,                    // imageMemoryBarrierCount
-        &image_memory_barrier // pImageMemoryBarriers
-    );
+    VkDependencyInfo dependency_info_undefined_to_color_attach{};
+    dependency_info_undefined_to_color_attach.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency_info_undefined_to_color_attach.imageMemoryBarrierCount = 1;
+    dependency_info_undefined_to_color_attach.pImageMemoryBarriers = &image_memory_barrier;
+
+    vkCmdPipelineBarrier2(command_buffer, &dependency_info_undefined_to_color_attach);
 
     VkRenderingAttachmentInfoKHR rendering_attachment_info{};
     rendering_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
@@ -541,26 +553,25 @@ int render(renderer &rend)
     vkCmdBeginRendering(command_buffer, &rendering_info);
     vkCmdEndRendering(command_buffer);
 
-    VkImageMemoryBarrier to_present_src_image_memory_barrier{};
-    to_present_src_image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    to_present_src_image_memory_barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    to_present_src_image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    VkImageMemoryBarrier2 to_present_src_image_memory_barrier{};
+    to_present_src_image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    to_present_src_image_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+    to_present_src_image_memory_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
+    to_present_src_image_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+    to_present_src_image_memory_barrier.dstAccessMask = VK_ACCESS_2_NONE;
+    to_present_src_image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
     to_present_src_image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     to_present_src_image_memory_barrier.image = current_swapchain_frame.image;
     to_present_src_image_memory_barrier.subresourceRange = single_color_image_subresource_range;
+    to_present_src_image_memory_barrier.srcQueueFamilyIndex = 0;
+    to_present_src_image_memory_barrier.dstQueueFamilyIndex = 0;
 
-    vkCmdPipelineBarrier(
-        command_buffer,
-        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, // srcStageMask
-        VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,          // dstStageMask
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,                                   // imageMemoryBarrierCount
-        &to_present_src_image_memory_barrier // pImageMemoryBarriers
-    );
+    VkDependencyInfo dependency_info_color_attach_to_present_src{};
+    dependency_info_color_attach_to_present_src.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependency_info_color_attach_to_present_src.imageMemoryBarrierCount = 1;
+    dependency_info_color_attach_to_present_src.pImageMemoryBarriers = &to_present_src_image_memory_barrier;
+
+    vkCmdPipelineBarrier2(command_buffer, &dependency_info_color_attach_to_present_src);
 
     err = vkEndCommandBuffer(command_buffer);
     if (err != VK_SUCCESS)
@@ -609,6 +620,7 @@ int render(renderer &rend)
 int shutdown(renderer &rend)
 {
     vkDeviceWaitIdle(rend.device);
+
     for (auto &swapchain_frame : rend.swapchain_frames)
     {
         vkDestroyImageView(rend.device, swapchain_frame.image_view, nullptr);
