@@ -59,6 +59,8 @@ struct renderer
 
     uint32_t current_submission_frame_index = 0;
     std::vector<submission_frame> submission_frames;
+
+    uint64_t frame_count = 0;
 };
 
 static constexpr VkImageSubresourceRange single_color_image_subresource_range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -88,16 +90,18 @@ int init(init_settings &settings, renderer &rend)
     {
         required_instance_extensions.push_back(required_glfw_extensions[i]);
     }
-    VkApplicationInfo app_create_info{};
-    app_create_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_create_info.apiVersion = VK_API_VERSION_1_3;
-    app_create_info.pApplicationName = "WaModRen";
+    VkApplicationInfo app_create_info{
+        .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+        .pApplicationName = "WaModRen",
+        .apiVersion = VK_API_VERSION_1_3,
+    };
 
-    VkInstanceCreateInfo inst_create_info{};
-    inst_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    inst_create_info.pApplicationInfo = &app_create_info;
-    inst_create_info.enabledExtensionCount = static_cast<uint32_t>(required_instance_extensions.size());
-    inst_create_info.ppEnabledExtensionNames = required_instance_extensions.data();
+    VkInstanceCreateInfo inst_create_info{
+        .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+        .pApplicationInfo = &app_create_info,
+        .enabledExtensionCount = static_cast<uint32_t>(required_instance_extensions.size()),
+        .ppEnabledExtensionNames = required_instance_extensions.data(),
+    };
 
     VkResult err = VK_SUCCESS;
     err = vkCreateInstance(&inst_create_info, nullptr, &rend.inst);
@@ -175,36 +179,35 @@ int init(init_settings &settings, renderer &rend)
         }
     }
     /* Unused at the moment
-    VkPhysicalDeviceVulkan14Features available_features_1_4{};
-    available_features_1_4.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
-
-    available_features_1_3.pNext = &available_features_1_4;
+    VkPhysicalDeviceVulkan14Features available_features_1_4{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+    };
     */
 
     // Required Physical Device Features across all versions
-    VkPhysicalDeviceVulkan13Features available_features_1_3{};
-    available_features_1_3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-    available_features_1_3.dynamicRendering = VK_TRUE;
-    available_features_1_3.maintenance4 = VK_TRUE;
-    available_features_1_3.synchronization2 = VK_TRUE;
-
-    VkPhysicalDeviceVulkan12Features available_features_1_2{};
-    available_features_1_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    available_features_1_2.pNext = &available_features_1_3;
-    available_features_1_2.timelineSemaphore = VK_TRUE;
-    available_features_1_2.bufferDeviceAddress = VK_TRUE;
-    available_features_1_2.descriptorIndexing = VK_TRUE;
-    available_features_1_2.uniformBufferStandardLayout = VK_TRUE;
-    available_features_1_2.descriptorBindingPartiallyBound = VK_TRUE;
-
-    VkPhysicalDeviceVulkan11Features available_features_1_1{};
-    available_features_1_1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-    available_features_1_1.pNext = &available_features_1_2;
-
-    VkPhysicalDeviceFeatures2 available_physical_device_features{};
-    available_physical_device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    available_physical_device_features.pNext = &available_features_1_1;
-
+    VkPhysicalDeviceVulkan13Features available_features_1_3{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .synchronization2 = VK_TRUE,
+        .dynamicRendering = VK_TRUE,
+        .maintenance4 = VK_TRUE,
+    };
+    VkPhysicalDeviceVulkan12Features available_features_1_2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &available_features_1_3,
+        .descriptorIndexing = VK_TRUE,
+        .descriptorBindingPartiallyBound = VK_TRUE,
+        .uniformBufferStandardLayout = VK_TRUE,
+        .timelineSemaphore = VK_TRUE,
+        .bufferDeviceAddress = VK_TRUE,
+    };
+    VkPhysicalDeviceVulkan11Features available_features_1_1{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        .pNext = &available_features_1_2,
+    };
+    VkPhysicalDeviceFeatures2 available_physical_device_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &available_features_1_1,
+    };
     vkGetPhysicalDeviceFeatures2(rend.physical_device, &available_physical_device_features);
 
     if (
@@ -223,49 +226,54 @@ int init(init_settings &settings, renderer &rend)
     }
     /*
         // Unused at the moment
-        VkPhysicalDeviceVulkan14Features enabled_features_1_4{};
-        enabled_features_1_4.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES;
-
-        enabled_features_1_3.pNext = &enabled_features_1_4;
+        VkPhysicalDeviceVulkan14Features enabled_features_1_4{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
+        };
     */
 
-    VkPhysicalDeviceVulkan13Features enabled_features_1_3{};
-    enabled_features_1_3.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-    enabled_features_1_3.dynamicRendering = VK_TRUE;
-    enabled_features_1_3.maintenance4 = VK_TRUE;
-    enabled_features_1_3.synchronization2 = VK_TRUE;
+    VkPhysicalDeviceVulkan13Features enabled_features_1_3{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .synchronization2 = VK_TRUE,
+        .dynamicRendering = VK_TRUE,
+        .maintenance4 = VK_TRUE,
+    };
 
-    VkPhysicalDeviceVulkan12Features enabled_features_1_2{};
-    enabled_features_1_2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    enabled_features_1_2.pNext = &enabled_features_1_3;
-    enabled_features_1_2.timelineSemaphore = VK_TRUE;
-    enabled_features_1_2.bufferDeviceAddress = VK_TRUE;
-    enabled_features_1_2.descriptorIndexing = VK_TRUE;
-    enabled_features_1_2.uniformBufferStandardLayout = VK_TRUE;
-    enabled_features_1_2.descriptorBindingPartiallyBound = VK_TRUE;
+    VkPhysicalDeviceVulkan12Features enabled_features_1_2{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+        .pNext = &enabled_features_1_3,
+        .descriptorIndexing = VK_TRUE,
+        .descriptorBindingPartiallyBound = VK_TRUE,
+        .uniformBufferStandardLayout = VK_TRUE,
+        .timelineSemaphore = VK_TRUE,
+        .bufferDeviceAddress = VK_TRUE,
+    };
 
-    VkPhysicalDeviceVulkan11Features enabled_features_1_1{};
-    enabled_features_1_1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
-    enabled_features_1_1.pNext = &enabled_features_1_2;
+    VkPhysicalDeviceVulkan11Features enabled_features_1_1{
+        enabled_features_1_1.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
+        enabled_features_1_1.pNext = &enabled_features_1_2,
+    };
 
-    VkPhysicalDeviceFeatures2 enabled_physical_device_features{};
-    enabled_physical_device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    enabled_physical_device_features.pNext = &enabled_features_1_1;
+    VkPhysicalDeviceFeatures2 enabled_physical_device_features{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &enabled_features_1_1,
+    };
 
     float queue_priority = 1.0f;
-    VkDeviceQueueCreateInfo queue_create_infos{};
-    queue_create_infos.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_infos.pQueuePriorities = &queue_priority;
-    queue_create_infos.queueCount = 1;
-    queue_create_infos.queueFamilyIndex = 0;
+    VkDeviceQueueCreateInfo queue_create_infos{
+        .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = 0,
+        .queueCount = 1,
+        .pQueuePriorities = &queue_priority,
+    };
 
-    VkDeviceCreateInfo device_create_info{};
-    device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_create_info.pNext = &enabled_physical_device_features;
-    device_create_info.enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size());
-    device_create_info.ppEnabledExtensionNames = required_device_extensions.data();
-    device_create_info.queueCreateInfoCount = 1;
-    device_create_info.pQueueCreateInfos = &queue_create_infos;
+    VkDeviceCreateInfo device_create_info{
+        .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .pNext = &enabled_physical_device_features,
+        .queueCreateInfoCount = 1,
+        .pQueueCreateInfos = &queue_create_infos,
+        .enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size()),
+        .ppEnabledExtensionNames = required_device_extensions.data(),
+    };
     err = vkCreateDevice(rend.physical_device, &device_create_info, nullptr, &rend.device);
     if (err != VK_SUCCESS)
     {
@@ -327,23 +335,23 @@ int init(init_settings &settings, renderer &rend)
         }
     }
 
-    VkSwapchainCreateInfoKHR swapchain_create_info{};
-    swapchain_create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchain_create_info.surface = rend.surface;
-    swapchain_create_info.minImageCount = (surface_capabilities.minImageCount > 3) ? surface_capabilities.minImageCount : 3;
-    swapchain_create_info.imageFormat = rend.swapchain_image_format;
-    swapchain_create_info.imageColorSpace = rend.swapchain_image_colorspace;
-    swapchain_create_info.imageExtent = VkExtent2D{static_cast<uint32_t>(settings.window_width), static_cast<uint32_t>(settings.window_height)};
-    swapchain_create_info.imageArrayLayers = 1;
-    swapchain_create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    swapchain_create_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    swapchain_create_info.queueFamilyIndexCount = 0;
-    swapchain_create_info.pQueueFamilyIndices = nullptr;
-    swapchain_create_info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    swapchain_create_info.clipped = false;
-
+    VkSwapchainCreateInfoKHR swapchain_create_info{
+        .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = rend.surface,
+        .minImageCount = (surface_capabilities.minImageCount > 3) ? surface_capabilities.minImageCount : 3,
+        .imageFormat = rend.swapchain_image_format,
+        .imageColorSpace = rend.swapchain_image_colorspace,
+        .imageExtent = VkExtent2D{static_cast<uint32_t>(settings.window_width), static_cast<uint32_t>(settings.window_height)},
+        .imageArrayLayers = 1,
+        .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+        .queueFamilyIndexCount = 0,
+        .pQueueFamilyIndices = nullptr,
+        .preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+        .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = VK_PRESENT_MODE_FIFO_KHR,
+        .clipped = false,
+    };
     err = vkCreateSwapchainKHR(rend.device, &swapchain_create_info, nullptr, &rend.swapchain);
     if (err != VK_SUCCESS)
     {
@@ -377,12 +385,13 @@ int init(init_settings &settings, renderer &rend)
     for (auto &swapchain_frame : rend.swapchain_frames)
     {
 
-        VkImageViewCreateInfo swapchain_image_view_create_info{};
-        swapchain_image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        swapchain_image_view_create_info.format = rend.swapchain_image_format;
-        swapchain_image_view_create_info.image = swapchain_frame.image;
-        swapchain_image_view_create_info.subresourceRange = single_color_image_subresource_range;
-        swapchain_image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        VkImageViewCreateInfo swapchain_image_view_create_info{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = swapchain_frame.image,
+            .viewType = VK_IMAGE_VIEW_TYPE_2D,
+            .format = rend.swapchain_image_format,
+            .subresourceRange = single_color_image_subresource_range,
+        };
 
         err = vkCreateImageView(rend.device, &swapchain_image_view_create_info, nullptr, &swapchain_frame.image_view);
         if (err != VK_SUCCESS)
@@ -392,21 +401,23 @@ int init(init_settings &settings, renderer &rend)
         }
     }
 
-    VkCommandPoolCreateInfo command_buffer_create_info{};
-    command_buffer_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    command_buffer_create_info.queueFamilyIndex = 0;
-    command_buffer_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    VkCommandPoolCreateInfo command_buffer_create_info{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = 0,
+    };
     err = vkCreateCommandPool(rend.device, &command_buffer_create_info, nullptr, &rend.submission_command_pool);
     if (err != VK_SUCCESS)
     {
         fmt::print("Failed to create command pool with error code {}", magic_enum::enum_name(err));
         return -1;
     }
-    VkCommandBufferAllocateInfo command_buffer_allocate_info{};
-    command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    command_buffer_allocate_info.commandPool = rend.submission_command_pool;
-    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_buffer_allocate_info.commandBufferCount = swapchain_image_count;
+    VkCommandBufferAllocateInfo command_buffer_allocate_info{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = rend.submission_command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = swapchain_image_count,
+    };
     std::vector<VkCommandBuffer> command_buffers(swapchain_image_count, {});
     err = vkAllocateCommandBuffers(rend.device, &command_buffer_allocate_info, command_buffers.data());
     if (err != VK_SUCCESS)
@@ -437,9 +448,10 @@ int init(init_settings &settings, renderer &rend)
             fmt::print("Failed to create present semaphore with code {}", magic_enum::enum_name(err));
             return -1;
         }
-        VkFenceCreateInfo fence_create_info{};
-        fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        VkFenceCreateInfo fence_create_info{
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+        };
         err = vkCreateFence(rend.device, &fence_create_info, nullptr, &submission_frame.fence);
         if (err != VK_SUCCESS)
         {
@@ -502,9 +514,10 @@ int render(renderer &rend)
         fmt::print("Failed to reset command buffer from submission frame {} with code {}", rend.current_submission_frame_index, magic_enum::enum_name(err));
         return -1;
     }
-    VkCommandBufferBeginInfo command_buffer_begin_info{};
-    command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkCommandBufferBeginInfo command_buffer_begin_info{
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
     err = vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
     if (err != VK_SUCCESS)
     {
@@ -513,63 +526,67 @@ int render(renderer &rend)
     }
 
     // Transition swapchain image from UNDEFINED to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-    VkImageMemoryBarrier2 image_memory_barrier{};
-    image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    image_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    image_memory_barrier.srcAccessMask = VK_ACCESS_2_NONE;
-    image_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    image_memory_barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
-    image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    image_memory_barrier.image = current_swapchain_frame.image;
-    image_memory_barrier.subresourceRange = single_color_image_subresource_range;
-    image_memory_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    image_memory_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    VkImageMemoryBarrier2 image_memory_barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        .srcAccessMask = VK_ACCESS_2_NONE,
+        .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR,
+        .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = current_swapchain_frame.image,
+        .subresourceRange = single_color_image_subresource_range,
+    };
 
-    VkDependencyInfo dependency_info_undefined_to_color_attach{};
-    dependency_info_undefined_to_color_attach.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dependency_info_undefined_to_color_attach.imageMemoryBarrierCount = 1;
-    dependency_info_undefined_to_color_attach.pImageMemoryBarriers = &image_memory_barrier;
+    VkDependencyInfo dependency_info_undefined_to_color_attach{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &image_memory_barrier};
 
     vkCmdPipelineBarrier2(command_buffer, &dependency_info_undefined_to_color_attach);
 
-    VkRenderingAttachmentInfoKHR rendering_attachment_info{};
-    rendering_attachment_info.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
-    rendering_attachment_info.imageView = current_swapchain_frame.image_view;
-    rendering_attachment_info.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR;
-    rendering_attachment_info.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    rendering_attachment_info.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    VkClearValue clear_value{0.f, 1.f, 0.f, 0.f};
-    rendering_attachment_info.clearValue = clear_value;
+    VkRenderingAttachmentInfoKHR rendering_attachment_info{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+        .imageView = current_swapchain_frame.image_view,
+        .imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL_KHR,
+        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue = VkClearValue{0.f, (100 + rend.frame_count) % 128 / 256.f, 0.f, 0.f},
+    };
 
-    VkRenderingInfoKHR rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering_info.renderArea = rend.swapchain_image_render_area;
-    rendering_info.layerCount = 1;
-    rendering_info.viewMask = 0;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachments = &rendering_attachment_info;
+    VkRenderingInfoKHR rendering_info{
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea = rend.swapchain_image_render_area,
+        .layerCount = 1,
+        .viewMask = 0,
+        .colorAttachmentCount = 1,
+        .pColorAttachments = &rendering_attachment_info,
+    };
 
     vkCmdBeginRendering(command_buffer, &rendering_info);
     vkCmdEndRendering(command_buffer);
 
-    VkImageMemoryBarrier2 to_present_src_image_memory_barrier{};
-    to_present_src_image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    to_present_src_image_memory_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
-    to_present_src_image_memory_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR;
-    to_present_src_image_memory_barrier.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-    to_present_src_image_memory_barrier.dstAccessMask = VK_ACCESS_2_NONE;
-    to_present_src_image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
-    to_present_src_image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    to_present_src_image_memory_barrier.image = current_swapchain_frame.image;
-    to_present_src_image_memory_barrier.subresourceRange = single_color_image_subresource_range;
-    to_present_src_image_memory_barrier.srcQueueFamilyIndex = 0;
-    to_present_src_image_memory_barrier.dstQueueFamilyIndex = 0;
+    VkImageMemoryBarrier2 to_present_src_image_memory_barrier{
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+        .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT_KHR,
+        .dstStageMask = VK_PIPELINE_STAGE_2_NONE,
+        .dstAccessMask = VK_ACCESS_2_NONE,
+        .oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .srcQueueFamilyIndex = 0,
+        .dstQueueFamilyIndex = 0,
+        .image = current_swapchain_frame.image,
+        .subresourceRange = single_color_image_subresource_range,
+    };
 
-    VkDependencyInfo dependency_info_color_attach_to_present_src{};
-    dependency_info_color_attach_to_present_src.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dependency_info_color_attach_to_present_src.imageMemoryBarrierCount = 1;
-    dependency_info_color_attach_to_present_src.pImageMemoryBarriers = &to_present_src_image_memory_barrier;
+    VkDependencyInfo dependency_info_color_attach_to_present_src{
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &to_present_src_image_memory_barrier,
+    };
 
     vkCmdPipelineBarrier2(command_buffer, &dependency_info_color_attach_to_present_src);
 
@@ -581,15 +598,16 @@ int render(renderer &rend)
     }
 
     VkPipelineStageFlags wait_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &current_submission_frame.command_buffer;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &current_submission_frame.acquire_swapchain_semaphore;
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &current_submission_frame.present_swapchain_semaphore;
-    submit_info.pWaitDstStageMask = &wait_stages;
+    VkSubmitInfo submit_info{
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &current_submission_frame.acquire_swapchain_semaphore,
+        .pWaitDstStageMask = &wait_stages,
+        .commandBufferCount = 1,
+        .pCommandBuffers = &current_submission_frame.command_buffer,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &current_submission_frame.present_swapchain_semaphore,
+    };
     err = vkQueueSubmit(rend.main_queue, 1, &submit_info, current_submission_frame.fence);
     if (err != VK_SUCCESS)
     {
@@ -597,14 +615,15 @@ int render(renderer &rend)
         return -1;
     }
 
-    VkPresentInfoKHR present_info{};
-    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_info.pImageIndices = &next_swapchain_image_index;
-    present_info.swapchainCount = 1;
-    present_info.pSwapchains = &rend.swapchain;
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &current_submission_frame.present_swapchain_semaphore;
-    present_info.pResults = nullptr;
+    VkPresentInfoKHR present_info{
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &current_submission_frame.present_swapchain_semaphore,
+        .swapchainCount = 1,
+        .pSwapchains = &rend.swapchain,
+        .pImageIndices = &next_swapchain_image_index,
+        .pResults = nullptr,
+    };
 
     vkQueuePresentKHR(rend.main_queue, &present_info);
     if (err != VK_SUCCESS)
@@ -660,6 +679,7 @@ int main()
         {
             return ret;
         }
+        rend.frame_count++;
     }
     ret = shutdown(rend);
     if (ret != 0)
