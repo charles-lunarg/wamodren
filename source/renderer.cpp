@@ -1,5 +1,8 @@
 #include "renderer.hpp"
 
+#include <fstream>
+#include <cstdlib>
+
 #include <fmt/format.h>
 #include <magic_enum.hpp>
 
@@ -17,7 +20,7 @@ VkResult init_instance(init_settings &settings, renderer &rend)
     VkApplicationInfo app_create_info{
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "WaModRen",
-        .apiVersion = VK_API_VERSION_1_3,
+        .apiVersion = VK_API_VERSION_1_4,
     };
 
     VkInstanceCreateInfo inst_create_info{
@@ -53,6 +56,11 @@ VkResult init_device(init_settings &settings, renderer &rend)
         fmt::print("Failed to enumerate physical devices with error code {}", magic_enum::enum_name(err));
         return VK_ERROR_INITIALIZATION_FAILED;
     }
+    VkPhysicalDeviceProperties physical_device_properties{};
+    vkGetPhysicalDeviceProperties(rend.physical_device, &physical_device_properties);
+    uint32_t version = physical_device_properties.apiVersion;
+    fmt::print("Using physical device {} with api version {}.{}.{}\n", physical_device_properties.deviceName,
+               VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), VK_API_VERSION_PATCH(version));
 
     if (!glfwGetPhysicalDevicePresentationSupport(rend.inst, rend.physical_device, 0))
     {
@@ -72,7 +80,7 @@ VkResult init_device(init_settings &settings, renderer &rend)
     }
 
     std::vector<const char *> required_device_extensions{
-        "VK_KHR_swapchain"};
+        "VK_KHR_swapchain", "VK_KHR_maintenance5"};
     std::vector<VkExtensionProperties> available_device_extensions{};
     uint32_t device_extension_count = 0;
     err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &device_extension_count, nullptr);
@@ -106,27 +114,17 @@ VkResult init_device(init_settings &settings, renderer &rend)
             return VK_ERROR_INITIALIZATION_FAILED;
         }
     }
-    /* Unused at the moment
-    VkPhysicalDeviceVulkan14Features available_features_1_4{
-        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-    };
-    */
 
-    // Required Physical Device Features across all versions
+    VkPhysicalDeviceMaintenance5FeaturesKHR available_features_maintenance5{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+    };
     VkPhysicalDeviceVulkan13Features available_features_1_3{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-        .synchronization2 = VK_TRUE,
-        .dynamicRendering = VK_TRUE,
-        .maintenance4 = VK_TRUE,
+        .pNext = &available_features_maintenance5,
     };
     VkPhysicalDeviceVulkan12Features available_features_1_2{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
         .pNext = &available_features_1_3,
-        .descriptorIndexing = VK_TRUE,
-        .descriptorBindingPartiallyBound = VK_TRUE,
-        .uniformBufferStandardLayout = VK_TRUE,
-        .timelineSemaphore = VK_TRUE,
-        .bufferDeviceAddress = VK_TRUE,
     };
     VkPhysicalDeviceVulkan11Features available_features_1_1{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES,
@@ -138,6 +136,8 @@ VkResult init_device(init_settings &settings, renderer &rend)
     };
     vkGetPhysicalDeviceFeatures2(rend.physical_device, &available_physical_device_features);
 
+    // Required Physical Device Features across all versions
+
     if (
         available_features_1_2.timelineSemaphore != VK_TRUE ||
         available_features_1_2.bufferDeviceAddress != VK_TRUE ||
@@ -147,20 +147,22 @@ VkResult init_device(init_settings &settings, renderer &rend)
 
         available_features_1_3.dynamicRendering != VK_TRUE ||
         available_features_1_3.maintenance4 != VK_TRUE ||
-        available_features_1_3.synchronization2 != VK_TRUE)
+        available_features_1_3.synchronization2 != VK_TRUE ||
+
+        available_features_maintenance5.maintenance5 != VK_TRUE)
     {
         fmt::print("Missing required physical device features!");
         return VK_ERROR_INITIALIZATION_FAILED;
     }
-    /*
-        // Unused at the moment
-        VkPhysicalDeviceVulkan14Features enabled_features_1_4{
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES,
-        };
-    */
+
+    VkPhysicalDeviceMaintenance5FeaturesKHR enabled_features_maintenance5{
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
+        .maintenance5 = VK_TRUE,
+    };
 
     VkPhysicalDeviceVulkan13Features enabled_features_1_3{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext = &enabled_features_maintenance5,
         .synchronization2 = VK_TRUE,
         .dynamicRendering = VK_TRUE,
         .maintenance4 = VK_TRUE,
@@ -396,8 +398,146 @@ VkResult init_frame_data(init_settings &settings, renderer &rend)
     }
     return VK_SUCCESS;
 }
+
+VkResult init_pipeline_layout(renderer &rend)
+{
+    std::vector<VkDescriptorSetLayoutBinding> bindings{
+        VkDescriptorSetLayoutBinding{
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_ALL,
+        },
+        VkDescriptorSetLayoutBinding{
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_ALL,
+        },
+        VkDescriptorSetLayoutBinding{
+            .binding = 2,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_ALL,
+        },
+    };
+    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info{
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .bindingCount = static_cast<uint32_t>(bindings.size()),
+        .pBindings = bindings.data(),
+    };
+
+    VkResult err = vkCreateDescriptorSetLayout(rend.device, &descriptor_set_layout_create_info, nullptr, &rend.descriptor_set_layout);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to create descriptor set layout");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    std::vector<VkPushConstantRange> push_constants{
+        VkPushConstantRange{
+            .stageFlags = VK_SHADER_STAGE_ALL,
+            .offset = 0,
+            .size = 4,
+        },
+    };
+
+    VkPipelineLayoutCreateInfo pipeline_layout_create_info{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .setLayoutCount = 1,
+        .pSetLayouts = &rend.descriptor_set_layout,
+        .pushConstantRangeCount = static_cast<uint32_t>(push_constants.size()),
+        .pPushConstantRanges = push_constants.data(),
+    };
+
+    err = vkCreatePipelineLayout(rend.device, &pipeline_layout_create_info, nullptr, &rend.pipeline_layout);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to create pipeline layout");
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    return VK_SUCCESS;
+}
+
+VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const &details, VkPipeline &out_pipeline)
+{
+    std::string path_to_shader_source = DATA_DIRECTORY "/shaders/" + details.shader_name + ".slang";
+    std::string output_filename = details.shader_name + ".spv";
+    std::ifstream file_check(path_to_shader_source);
+    if (!file_check.is_open())
+    {
+        fmt::print("The file at path {} could not be found", path_to_shader_source);
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    file_check.close();
+
+    std::string slang_invocation = "slangc ";
+    slang_invocation.append(path_to_shader_source);
+    slang_invocation.append(" -target spirv");
+    slang_invocation.append(" -I " DATA_DIRECTORY "/shaders");
+    slang_invocation.append(" -o ").append(output_filename);
+
+    int err = system(slang_invocation.c_str());
+    if (err != 0)
+    {
+        fmt::print("The slang invocation \"{}\" failed with error code {}", slang_invocation, err);
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    std::ifstream shader_file(output_filename, std::ios::ate | std::ios::binary); // start at end
+    if (!shader_file.is_open())
+    {
+        fmt::print("The compiled shader {} could not be found", path_to_shader_source);
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    size_t file_size = (size_t)shader_file.tellg();
+    std::vector<uint32_t> compiled_contents(file_size / sizeof(uint32_t));
+    shader_file.seekg(0); // go back to the beginning
+    shader_file.read((char *)compiled_contents.data(), file_size);
+    shader_file.close();
+
+    switch (details.type)
+    {
+    case (pipeline_type::graphics):
+    {
+    }
+    case (pipeline_type::compute):
+    {
+        VkShaderModuleCreateInfo shader_module_info{
+            .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+            .codeSize = static_cast<uint32_t>(compiled_contents.size() * sizeof(uint32_t)),
+            .pCode = compiled_contents.data(),
+        };
+
+        VkComputePipelineCreateInfo compute_pipeline_create_info{
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .stage = VkPipelineShaderStageCreateInfo{
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                .pNext = &shader_module_info,
+                .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+                .pName = "main",
+            },
+            .layout = rend.pipeline_layout,
+
+        };
+        VkResult res = vkCreateComputePipelines(rend.device, nullptr, 1, &compute_pipeline_create_info, nullptr, &out_pipeline);
+        if (res != VK_SUCCESS)
+        {
+            return res;
+        }
+    }
+    }
+
+    return VK_SUCCESS;
+}
+
 VkResult init_graphics_pipelines(init_settings &settings, renderer &rend)
 {
+    VkPipeline pipeline{};
+    if (create_graphics_pipeline(rend, pipeline_create_details{pipeline_type::compute, "hello-world"}, pipeline) != VK_SUCCESS)
+    {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    rend.pipeline = pipeline;
     return VK_SUCCESS;
 }
 VkResult render(renderer &rend)
@@ -584,6 +724,15 @@ int init_renderer(init_settings &settings, renderer &rend)
         return -1;
     if (init_frame_data(settings, rend) != VK_SUCCESS)
         return -1;
+
+    // Check that shader compiler is available
+    if (system("slangc") != 0)
+    {
+        fmt::print("slangc not found!");
+        return -1;
+    }
+    if (init_pipeline_layout(rend) != VK_SUCCESS)
+        return -1;
     if (init_graphics_pipelines(settings, rend) != VK_SUCCESS)
         return -1;
     return 0;
@@ -592,7 +741,9 @@ int init_renderer(init_settings &settings, renderer &rend)
 void shutdown_renderer(renderer &rend)
 {
     vkDeviceWaitIdle(rend.device);
-
+    vkDestroyPipeline(rend.device, rend.pipeline, nullptr);
+    vkDestroyPipelineLayout(rend.device, rend.pipeline_layout, nullptr);
+    vkDestroyDescriptorSetLayout(rend.device, rend.descriptor_set_layout, nullptr);
     for (auto &swapchain_frame : rend.swapchain_frames)
     {
         vkDestroyImageView(rend.device, swapchain_frame.image_view, nullptr);

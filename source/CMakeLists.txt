@@ -17,3 +17,5 @@ if (ENABLE_ASAN)
     target_compile_options(renderer PUBLIC -fsanitize=address)
     target_link_options(renderer PUBLIC -fsanitize=address)
 endif()
+
+target_compile_definitions(renderer PUBLIC "DATA_DIRECTORY=\"${CMAKE_SOURCE_DIR}/data\"")

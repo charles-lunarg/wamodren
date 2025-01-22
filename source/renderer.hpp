@@ -32,7 +32,7 @@ struct renderer
     VkSurfaceKHR surface{};
     VkPhysicalDevice physical_device{};
     VkDevice device{};
-    VkQueue main_queue;
+    VkQueue main_queue{};
     VkSurfaceCapabilitiesKHR surface_capabilities{};
     VkSwapchainKHR swapchain{};
     VkFormat swapchain_image_format{};
@@ -46,6 +46,22 @@ struct renderer
     std::vector<submission_frame> submission_frames;
 
     uint64_t frame_count = 0;
+
+    VkDescriptorSetLayout descriptor_set_layout{};
+    VkPipelineLayout pipeline_layout{};
+    VkPipeline pipeline{};
+};
+
+enum class pipeline_type
+{
+    graphics,
+    compute
+};
+
+struct pipeline_create_details
+{
+    pipeline_type type;
+    std::string shader_name;
 };
 
 int init_renderer(init_settings &settings, renderer &rend);
