@@ -1,4 +1,10 @@
-add_executable(renderer main.cpp)
+add_executable(renderer
+    main.cpp
+    renderer.hpp
+    renderer.cpp
+    window.hpp
+    window.cpp
+)
 
 target_link_libraries(renderer
     Vulkan::Vulkan
