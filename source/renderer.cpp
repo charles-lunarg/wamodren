@@ -49,13 +49,24 @@ VkResult init_instance(init_settings &settings, renderer &rend)
 }
 VkResult init_device(init_settings &settings, renderer &rend)
 {
-    uint32_t physical_device_count = 1;
-    VkResult err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, &rend.physical_device);
-    if (err < VK_SUCCESS)
+    uint32_t physical_device_count = 0;
+    VkResult err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, nullptr);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to enumerate physical device count with error code {}", magic_enum::enum_name(err));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    std::vector<VkPhysicalDevice> physical_devices(physical_device_count, {});
+    err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, physical_devices.data());
+    if (err != VK_SUCCESS || physical_device_count != physical_devices.size())
     {
         fmt::print("Failed to enumerate physical devices with error code {}", magic_enum::enum_name(err));
         return VK_ERROR_INITIALIZATION_FAILED;
     }
+
+    // Pick the first physical device regardless for simplicity
+    rend.physical_device = physical_devices.at(0);
+
     VkPhysicalDeviceProperties physical_device_properties{};
     vkGetPhysicalDeviceProperties(rend.physical_device, &physical_device_properties);
     uint32_t version = physical_device_properties.apiVersion;
