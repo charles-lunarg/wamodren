@@ -8,6 +8,9 @@
 
 static constexpr VkImageSubresourceRange single_color_image_subresource_range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
+static const std::vector<const char *> required_device_extensions{
+    "VK_KHR_swapchain", "VK_KHR_maintenance5"};
+
 VkResult init_instance(init_settings &settings, renderer &rend)
 {
     uint32_t glfw_extension_count = 0;
@@ -47,33 +50,17 @@ VkResult init_instance(init_settings &settings, renderer &rend)
     }
     return VK_SUCCESS;
 }
-VkResult init_device(init_settings &settings, renderer &rend)
-{
-    uint32_t physical_device_count = 0;
-    VkResult err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, nullptr);
-    if (err != VK_SUCCESS)
-    {
-        fmt::print("Failed to enumerate physical device count with error code {}", magic_enum::enum_name(err));
-        return VK_ERROR_INITIALIZATION_FAILED;
-    }
-    std::vector<VkPhysicalDevice> physical_devices(physical_device_count, {});
-    err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, physical_devices.data());
-    if (err != VK_SUCCESS || physical_device_count != physical_devices.size())
-    {
-        fmt::print("Failed to enumerate physical devices with error code {}", magic_enum::enum_name(err));
-        return VK_ERROR_INITIALIZATION_FAILED;
-    }
 
-    // Pick the first physical device regardless for simplicity
-    rend.physical_device = physical_devices.at(0);
+VkResult validate_physical_device(renderer &rend, VkPhysicalDevice physical_device)
+{
 
     VkPhysicalDeviceProperties physical_device_properties{};
-    vkGetPhysicalDeviceProperties(rend.physical_device, &physical_device_properties);
+    vkGetPhysicalDeviceProperties(physical_device, &physical_device_properties);
     uint32_t version = physical_device_properties.apiVersion;
     fmt::print("Using physical device {} with api version {}.{}.{}\n", physical_device_properties.deviceName,
                VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), VK_API_VERSION_PATCH(version));
 
-    if (!glfwGetPhysicalDevicePresentationSupport(rend.inst, rend.physical_device, 0))
+    if (!glfwGetPhysicalDevicePresentationSupport(rend.inst, physical_device, 0))
     {
         fmt::print("Physical Device does not support presentation");
         return VK_ERROR_INITIALIZATION_FAILED;
@@ -81,7 +68,7 @@ VkResult init_device(init_settings &settings, renderer &rend)
 
     uint32_t queue_count = 1;
     VkQueueFamilyProperties queue_family_properties{};
-    vkGetPhysicalDeviceQueueFamilyProperties(rend.physical_device, &queue_count, &queue_family_properties);
+    vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_count, &queue_family_properties);
     if ((queue_family_properties.queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0 ||
         (queue_family_properties.queueFlags & VK_QUEUE_COMPUTE_BIT) == 0 ||
         (queue_family_properties.queueFlags & VK_QUEUE_TRANSFER_BIT) == 0)
@@ -90,18 +77,16 @@ VkResult init_device(init_settings &settings, renderer &rend)
         return VK_ERROR_INITIALIZATION_FAILED;
     }
 
-    std::vector<const char *> required_device_extensions{
-        "VK_KHR_swapchain", "VK_KHR_maintenance5"};
     std::vector<VkExtensionProperties> available_device_extensions{};
     uint32_t device_extension_count = 0;
-    err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &device_extension_count, nullptr);
+    VkResult err = vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &device_extension_count, nullptr);
     if (err != VK_SUCCESS)
     {
         fmt::print("Cannot get count of VkPhysicalDevice's extensions with error code {}", magic_enum::enum_name(err));
         return VK_ERROR_INITIALIZATION_FAILED;
     }
     available_device_extensions.resize(device_extension_count, VkExtensionProperties{});
-    err = vkEnumerateDeviceExtensionProperties(rend.physical_device, nullptr, &device_extension_count, available_device_extensions.data());
+    err = vkEnumerateDeviceExtensionProperties(physical_device, nullptr, &device_extension_count, available_device_extensions.data());
     if (err != VK_SUCCESS)
     {
         fmt::print("Cannot get VkPhysicalDevice's extensions with error code {}", magic_enum::enum_name(err));
@@ -145,7 +130,7 @@ VkResult init_device(init_settings &settings, renderer &rend)
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
         .pNext = &available_features_1_1,
     };
-    vkGetPhysicalDeviceFeatures2(rend.physical_device, &available_physical_device_features);
+    vkGetPhysicalDeviceFeatures2(physical_device, &available_physical_device_features);
 
     // Required Physical Device Features across all versions
 
@@ -165,6 +150,52 @@ VkResult init_device(init_settings &settings, renderer &rend)
         fmt::print("Missing required physical device features!");
         return VK_ERROR_INITIALIZATION_FAILED;
     }
+
+    err = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, rend.surface, &rend.surface_capabilities);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Unable to get physical device surface capabilities with err {}", magic_enum::enum_name(err));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    return VK_SUCCESS;
+}
+
+VkResult choose_physical_device(init_settings &settings, renderer &rend)
+{
+
+    uint32_t physical_device_count = 0;
+    VkResult err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, nullptr);
+    if (err != VK_SUCCESS)
+    {
+        fmt::print("Failed to enumerate physical device count with error code {}", magic_enum::enum_name(err));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    std::vector<VkPhysicalDevice> physical_devices(physical_device_count, {});
+    err = vkEnumeratePhysicalDevices(rend.inst, &physical_device_count, physical_devices.data());
+    if (err != VK_SUCCESS || physical_device_count != physical_devices.size())
+    {
+        fmt::print("Failed to enumerate physical devices with error code {}", magic_enum::enum_name(err));
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+
+    for (auto const &physical_device : physical_devices)
+    {
+        if (validate_physical_device(rend, physical_device) == VK_SUCCESS)
+        {
+            rend.physical_device = physical_device;
+            break;
+        }
+    }
+    if (rend.physical_device == VK_NULL_HANDLE)
+    {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    return VK_SUCCESS;
+}
+
+VkResult init_device(init_settings &settings, renderer &rend)
+{
 
     VkPhysicalDeviceMaintenance5FeaturesKHR enabled_features_maintenance5{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR,
@@ -199,13 +230,6 @@ VkResult init_device(init_settings &settings, renderer &rend)
         .pNext = &enabled_features_1_1,
     };
 
-    err = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(rend.physical_device, rend.surface, &rend.surface_capabilities);
-    if (err != VK_SUCCESS)
-    {
-        fmt::print("Unable to get physical device surface capabilities with err {}", magic_enum::enum_name(err));
-        return VK_ERROR_INITIALIZATION_FAILED;
-    }
-
     float queue_priority = 1.0f;
     VkDeviceQueueCreateInfo queue_create_infos{
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -222,7 +246,7 @@ VkResult init_device(init_settings &settings, renderer &rend)
         .enabledExtensionCount = static_cast<uint32_t>(required_device_extensions.size()),
         .ppEnabledExtensionNames = required_device_extensions.data(),
     };
-    err = vkCreateDevice(rend.physical_device, &device_create_info, nullptr, &rend.device);
+    VkResult err = vkCreateDevice(rend.physical_device, &device_create_info, nullptr, &rend.device);
     if (err != VK_SUCCESS)
     {
         fmt::print("Unable to create device with error code {}", magic_enum::enum_name(err));
@@ -728,6 +752,8 @@ VkResult render(renderer &rend)
 int init_renderer(init_settings &settings, renderer &rend)
 {
     if (init_instance(settings, rend) != VK_SUCCESS)
+        return -1;
+    if (choose_physical_device(settings, rend) != VK_SUCCESS)
         return -1;
     if (init_device(settings, rend) != VK_SUCCESS)
         return -1;
