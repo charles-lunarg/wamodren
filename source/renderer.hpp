@@ -47,9 +47,12 @@ struct renderer
 
     uint64_t frame_count = 0;
 
-    VkDescriptorSetLayout descriptor_set_layout{};
-    VkPipelineLayout pipeline_layout{};
-    VkPipeline pipeline{};
+    // Simple Gradient pipeline
+    VkDescriptorSetLayout gradient_descriptor_set_layout{};
+    VkPipelineLayout gradient_pipeline_layout{};
+    VkPipeline gradient_pipeline{};
+    VkDescriptorPool gradient_descriptor_pool{};
+    VkDescriptorSet gradient_descriptor_set{};
 };
 
 enum class pipeline_type
