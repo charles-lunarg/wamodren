@@ -437,12 +437,12 @@ VkResult init_frame_data(init_settings &settings, renderer &rend)
 VkResult init_pipeline_layout(renderer &rend)
 {
     std::vector<VkDescriptorSetLayoutBinding> bindings{
-        VkDescriptorSetLayoutBinding{
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        },
+        // VkDescriptorSetLayoutBinding{
+        //     .binding = 0,
+        //     .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+        //     .descriptorCount = 1,
+        //     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        // },
     };
 
     VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info{
@@ -497,8 +497,18 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
     std::string slang_invocation = "slangc ";
     slang_invocation.append(path_to_shader_source);
     slang_invocation.append(" -target spirv");
+    slang_invocation.append(" -profile sm_6_6");
     slang_invocation.append(" -I " DATA_DIRECTORY "/shaders");
     slang_invocation.append(" -o ").append(output_filename);
+
+    // if (details.type == pipeline_type::graphics)
+    // {
+    //     slang_invocation.append(" -entry mainVertex -entry mainFragment");
+    // }
+    // else
+    // {
+    //     slang_invocation.append(" -entry main");
+    // }
 
     int err = system(slang_invocation.c_str());
     if (err != 0)
@@ -534,13 +544,13 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 .pNext = &shader_module_info,
                 .stage = VK_SHADER_STAGE_VERTEX_BIT,
-                .pName = "mainVertex",
+                .pName = "main",
             },
             {
                 .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
                 .pNext = &shader_module_info,
                 .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-                .pName = "mainFragment",
+                .pName = "main",
             },
         };
 
@@ -569,10 +579,19 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
         VkPipelineRasterizationStateCreateInfo pipeline_rasterization_state_create_info{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
+            .cullMode = VK_CULL_MODE_BACK_BIT,
+            .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+            .lineWidth = 1.f,
+        };
+
+        VkPipelineMultisampleStateCreateInfo pipeline_multisample_state_create_info = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+            .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
         };
 
         VkPipelineColorBlendAttachmentState color_blend_attachment_states = {
             .blendEnable = VK_FALSE,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
         };
 
         VkPipelineColorBlendStateCreateInfo pipeline_color_blend_state_create_info{
@@ -594,14 +613,22 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
             .pDynamicStates = dynamic_states.data(),
         };
 
+        VkPipelineRenderingCreateInfo pipeline_rendering_create_info{
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+            .colorAttachmentCount = 1,
+            .pColorAttachmentFormats = &rend.swapchain_image_format,
+        };
+
         VkGraphicsPipelineCreateInfo graphics_pipeline_create_info{
-            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+            .pNext = &pipeline_rendering_create_info,
             .stageCount = static_cast<uint32_t>(pipeline_shader_stage_create_infos.size()),
             .pStages = pipeline_shader_stage_create_infos.data(),
             .pVertexInputState = &pipeline_vertex_input_state_create_info,
             .pInputAssemblyState = &pipeline_input_assembly_state_create_info,
             .pViewportState = &pipeline_viewport_state_create_info,
             .pRasterizationState = &pipeline_rasterization_state_create_info,
+            .pMultisampleState = &pipeline_multisample_state_create_info,
             .pDepthStencilState = &pipeline_depth_stencil_state_create_info,
             .pColorBlendState = &pipeline_color_blend_state_create_info,
             .pDynamicState = &pipeline_dynamic_state_create_info,
@@ -614,6 +641,7 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
             fmt::print("Failed to create graphics pipeline with error code {}", magic_enum::enum_name(err));
             return err;
         }
+        break;
     }
     case (pipeline_type::compute):
     {
@@ -640,6 +668,7 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
             fmt::print("Failed to create compute pipeline with error code {}", magic_enum::enum_name(err));
             return err;
         }
+        break;
     }
     }
 
@@ -648,7 +677,8 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
 
 VkResult init_graphics_pipelines(init_settings &settings, renderer &rend)
 {
-    if (create_graphics_pipeline(rend, pipeline_create_details{pipeline_type::compute, "gradient"}, rend.gradient_pipeline) != VK_SUCCESS)
+    if (create_graphics_pipeline(rend, pipeline_create_details{pipeline_type::graphics, "single_triangle"}, rend.gradient_pipeline) != VK_SUCCESS)
+    // if (create_graphics_pipeline(rend, pipeline_create_details{pipeline_type::compute, "gradient"}, rend.gradient_pipeline) != VK_SUCCESS)
     {
         return VK_ERROR_INITIALIZATION_FAILED;
     }
@@ -756,22 +786,22 @@ VkResult render(renderer &rend)
         return VK_ERROR_UNKNOWN;
     }
 
-    VkDescriptorImageInfo descriptor_image_info{
-        .imageView = current_swapchain_frame.image_view,
-        .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-    };
+    // VkDescriptorImageInfo descriptor_image_info{
+    // .imageView = current_swapchain_frame.image_view,
+    // .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+    // };
 
-    VkWriteDescriptorSet write_descriptor_set = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext = nullptr,
-        .dstSet = rend.gradient_descriptor_set,
-        .dstBinding = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-        .pImageInfo = &descriptor_image_info,
-    };
+    // VkWriteDescriptorSet write_descriptor_set = {
+    // .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+    // .pNext = nullptr,
+    // .dstSet = rend.gradient_descriptor_set,
+    // .dstBinding = 0,
+    // .descriptorCount = 1,
+    // .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+    // .pImageInfo = &descriptor_image_info,
+    // };
 
-    vkUpdateDescriptorSets(rend.device, 1, &write_descriptor_set, 0, nullptr);
+    // vkUpdateDescriptorSets(rend.device, 1, &write_descriptor_set, 0, nullptr);
 
     // Transition swapchain image from UNDEFINED to VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     VkImageMemoryBarrier2 image_memory_barrier{
@@ -813,17 +843,27 @@ VkResult render(renderer &rend)
         .pColorAttachments = &rendering_attachment_info,
     };
 
-    // vkCmdBeginRendering(command_buffer, &rendering_info);
-    // vkCmdEndRendering(command_buffer);
-
-    // bind the gradient drawing compute pipeline
-    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, rend.gradient_pipeline);
+    VkViewport viewport{
+        .width = static_cast<float>(rend.swapchain_image_render_area.extent.width),
+        .height = static_cast<float>(rend.swapchain_image_render_area.extent.height),
+        .maxDepth = 1.0f,
+    };
+    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+    VkRect2D extent = {.offset = {0, 0}, .extent = rend.swapchain_image_render_area.extent};
+    vkCmdSetScissor(command_buffer, 0, 1, &extent);
 
     // bind the descriptor set containing the draw image for the compute pipeline
     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, rend.gradient_pipeline_layout, 0, 1, &rend.gradient_descriptor_set, 0, nullptr);
+    vkCmdBeginRendering(command_buffer, &rendering_info);
+    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, rend.gradient_pipeline);
+    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+    vkCmdEndRendering(command_buffer);
+
+    // bind the gradient drawing compute pipeline
+    // vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, rend.gradient_pipeline);
 
     // execute the compute pipeline dispatch. We are using 16x16 workgroup size so we need to divide by it
-    vkCmdDispatch(command_buffer, std::ceil(rend.swapchain_image_render_area.extent.width / 16.0), std::ceil(rend.swapchain_image_render_area.extent.height / 16.0), 1);
+    // vkCmdDispatch(command_buffer, std::ceil(rend.swapchain_image_render_area.extent.width / 16.0), std::ceil(rend.swapchain_image_render_area.extent.height / 16.0), 1);
 
     VkImageMemoryBarrier2 to_present_src_image_memory_barrier{
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
