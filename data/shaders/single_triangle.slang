@@ -44,7 +44,7 @@ VertexStageOutput main(uint vertexID: SV_VertexID)
 }
 
 [shader("fragment")]
-Fragment main(CoarseVertex coarseVertex: CoarseVertex)
+Fragment main(CoarseVertex coarseVertex: 0)
     : SV_Target
 {
     float3 color = coarseVertex.color;

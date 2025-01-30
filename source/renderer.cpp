@@ -562,8 +562,14 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
             .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
         };
-        VkViewport viewport = {};
-        VkRect2D scissor = {};
+
+        VkViewport viewport{
+            .width = static_cast<float>(rend.swapchain_image_render_area.extent.width),
+            .height = static_cast<float>(rend.swapchain_image_render_area.extent.height),
+            .maxDepth = 1.0f,
+        };
+        VkRect2D scissor = {.offset = {0, 0}, .extent = rend.swapchain_image_render_area.extent};
+
         VkPipelineViewportStateCreateInfo pipeline_viewport_state_create_info{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
             .viewportCount = 1,
@@ -574,12 +580,14 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
 
         VkPipelineDepthStencilStateCreateInfo pipeline_depth_stencil_state_create_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+            .minDepthBounds = 1.0f,
+            .maxDepthBounds = 0.0f,
         };
 
         VkPipelineRasterizationStateCreateInfo pipeline_rasterization_state_create_info{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
-            .cullMode = VK_CULL_MODE_BACK_BIT,
+            .cullMode = VK_CULL_MODE_FRONT_BIT,
             .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .lineWidth = 1.f,
         };
@@ -587,6 +595,7 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
         VkPipelineMultisampleStateCreateInfo pipeline_multisample_state_create_info = {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
             .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+            .minSampleShading = 1.0f,
         };
 
         VkPipelineColorBlendAttachmentState color_blend_attachment_states = {
@@ -596,16 +605,16 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
 
         VkPipelineColorBlendStateCreateInfo pipeline_color_blend_state_create_info{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+            .logicOp = VK_LOGIC_OP_COPY,
             .attachmentCount = 1,
             .pAttachments = &color_blend_attachment_states,
             .blendConstants = {0.f, 0.f, 0.f, 0.f},
         };
 
-        std::vector<VkDynamicState>
-            dynamic_states = {
-                VK_DYNAMIC_STATE_VIEWPORT,
-                VK_DYNAMIC_STATE_SCISSOR,
-            };
+        std::vector<VkDynamicState> dynamic_states = {
+            VK_DYNAMIC_STATE_VIEWPORT,
+            VK_DYNAMIC_STATE_SCISSOR,
+        };
 
         VkPipelineDynamicStateCreateInfo pipeline_dynamic_state_create_info{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
