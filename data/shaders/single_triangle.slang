@@ -19,6 +19,12 @@ struct Fragment
     float4 color;
 };
 
+struct Vertex
+{
+    float2 pos;
+    float3 color;
+};
+
 // Vertex  Shader
 
 struct VertexStageOutput
@@ -33,12 +39,13 @@ VertexStageOutput main(uint vertexID: SV_VertexID)
 {
     VertexStageOutput output;
 
-    float2 vertices[3] = float2[3](float2(-1, -1), float2(3, -1), float2(-1, 3));
-    float4 position = float4(vertices[vertexID], 0, 1);
-    float2 uv = 0.5 * position.xy + float2(0.5, 0.5);
+    Vertex vertices[3] = Vertex[3](
+        Vertex(float2(-0.75, 0.75), float3(1, 0, 0)),
+        Vertex(float2(0.75, 0.75), float3(0, 1, 0)),
+        Vertex(float2(0, -0.75), float3(0, 0, 1)));
 
-    output.coarseVertex.color = float3(uv, 1);
-    output.sv_position = float4(vertices[vertexID], 0, 1);
+    output.coarseVertex.color = vertices[vertexID].color;
+    output.sv_position = float4(vertices[vertexID].pos, 0, 1);
 
     return output;
 }

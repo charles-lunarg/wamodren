@@ -587,7 +587,7 @@ VkResult create_graphics_pipeline(renderer &rend, pipeline_create_details const 
         VkPipelineRasterizationStateCreateInfo pipeline_rasterization_state_create_info{
             .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
             .polygonMode = VK_POLYGON_MODE_FILL,
-            .cullMode = VK_CULL_MODE_FRONT_BIT,
+            .cullMode = VK_CULL_MODE_NONE,
             .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
             .lineWidth = 1.f,
         };
